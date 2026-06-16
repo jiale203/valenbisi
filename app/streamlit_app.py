@@ -178,16 +178,25 @@ import forecast_prep as fp  # noqa: E402
 FC_XGB = os.path.join(ROOT, "models", "forecast_xgb.pkl")
 FC_META = os.path.join(ROOT, "models", "forecast_meta.json")
 SLOT_PATH = os.path.join(ROOT, "data", "slot_profile.parquet")
-FC_OK = all(os.path.exists(p) for p in (FC_XGB, FC_META, SLOT_PATH))
 
 
 @st.cache_resource(show_spinner=False)
-def load_fc():
-    bundle = joblib.load(FC_XGB)
-    with open(FC_META) as f:
-        fc_meta = json.load(f)
-    slot_idx = fp.slot_lookup(pd.read_parquet(SLOT_PATH))
-    return bundle["model"], fc_meta, slot_idx
+def get_fc():
+    """Load the short-term forecaster, or return None if unavailable.
+
+    Wrapped so a missing/incompatible xgboost or model file degrades the live
+    forecast gracefully instead of crashing the whole app.
+    """
+    if not all(os.path.exists(p) for p in (FC_XGB, FC_META, SLOT_PATH)):
+        return None
+    try:
+        bundle = joblib.load(FC_XGB)
+        with open(FC_META) as f:
+            fc_meta = json.load(f)
+        slot_idx = fp.slot_lookup(pd.read_parquet(SLOT_PATH))
+        return {"model": bundle["model"], "meta": fc_meta, "slot_idx": slot_idx}
+    except Exception:                                # noqa: BLE001
+        return None
 
 
 def nearest_live_bikes(stat: dict, live: pd.DataFrame):
@@ -367,8 +376,9 @@ with tab_fc:
     stat = station_row(sname)
 
     # ---- LIVE short-term forecast: anchored on current availability --------
-    if FC_OK:
-        fc_model, fc_meta, slot_idx = load_fc()
+    _fc = get_fc()
+    if _fc:
+        fc_model, fc_meta, slot_idx = _fc["model"], _fc["meta"], _fc["slot_idx"]
         hz = fc_meta["horizon_min"]
         st.markdown(f"#### 🔴 Live — next {hz} minutes")
         live, ok, ts = fetch_live()
@@ -596,8 +606,9 @@ with tab_model:
     m[2].metric("Forecast R²", f"{meta['regressor_test']['r2']:.2f}")
     m[3].metric("Stockout ROC-AUC", f"{meta['stockout_test']['roc_auc']:.2f}")
 
-    if FC_OK:
-        _, fcm, _ = load_fc()
+    _fcm = get_fc()
+    if _fcm:
+        fcm = _fcm["meta"]
         st.markdown(f"##### ⚡ Short-term forecaster — bikes {fcm['horizon_min']} min ahead")
         st.caption("Anchors on the station's *current* availability (live API) + its "
                    "typical slot profile + weather. Trained on 15-min snapshots; "
