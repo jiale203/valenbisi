@@ -107,8 +107,12 @@ def load_bands():
 
 @st.cache_resource(show_spinner=False)
 def get_explainer(_reg):
-    import shap
-    return shap.TreeExplainer(_reg.named_steps["model"])
+    """SHAP TreeExplainer, or None if shap is unavailable in this environment."""
+    try:
+        import shap
+        return shap.TreeExplainer(_reg.named_steps["model"])
+    except Exception:                                # noqa: BLE001
+        return None
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -325,8 +329,10 @@ NICE = {"hour": "Hour", "hour_sin": "Hour", "hour_cos": "Hour",
         "station_id": "Station"}
 
 
-def shap_reasons(X: pd.DataFrame) -> pd.Series:
+def shap_reasons(X: pd.DataFrame):
     expl = get_explainer(reg)
+    if expl is None:
+        return None
     pre = reg.named_steps["pre"]
     Xt = pre.transform(X)
     out = pre.get_feature_names_out()
@@ -462,17 +468,21 @@ with tab_fc:
     st.plotly_chart(fig, width="stretch")
 
     st.markdown("##### Why this prediction? (SHAP)")
-    cs = shap_reasons(X).sort_values()
-    cs = pd.concat([cs.head(5), cs.tail(5)]).drop_duplicates()
-    colors = [GREEN if v >= 0 else RED for v in cs.values]
-    fig = go.Figure(go.Bar(x=cs.values, y=cs.index, orientation="h",
-                           marker_color=colors,
-                           text=[f"{v:+.1f}" for v in cs.values], textposition="outside"))
-    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10),
-                      plot_bgcolor="white",
-                      xaxis_title="Impact on predicted bikes (SHAP)")
-    st.plotly_chart(fig, width="stretch")
-    st.caption("Green pushes availability up, red pushes it down.")
+    _cs = shap_reasons(X)
+    if _cs is not None:
+        cs = _cs.sort_values()
+        cs = pd.concat([cs.head(5), cs.tail(5)]).drop_duplicates()
+        colors = [GREEN if v >= 0 else RED for v in cs.values]
+        fig = go.Figure(go.Bar(x=cs.values, y=cs.index, orientation="h",
+                               marker_color=colors,
+                               text=[f"{v:+.1f}" for v in cs.values], textposition="outside"))
+        fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10),
+                          plot_bgcolor="white",
+                          xaxis_title="Impact on predicted bikes (SHAP)")
+        st.plotly_chart(fig, width="stretch")
+        st.caption("Green pushes availability up, red pushes it down.")
+    else:
+        st.caption("SHAP explanations are unavailable in this environment.")
 
 
 # =========================================================================== #
@@ -666,24 +676,27 @@ with tab_model:
                     h, 2, datetime.now().month, 20, 0.0))
         Xb = pd.concat(recs, ignore_index=True)
         expl = get_explainer(reg)
-        pre = reg.named_steps["pre"]
-        sv = np.array(expl.shap_values(pre.transform(Xb)))
-        out = pre.get_feature_names_out()
-        imp = {}
-        for j, name in enumerate(out):
-            src = name.split("__", 1)[-1]
-            for feat in feats:
-                if src == feat or src.startswith(feat + "_"):
-                    key = NICE.get(feat, feat)
-                    imp[key] = imp.get(key, 0.0) + np.abs(sv[:, j]).mean()
-                    break
-        imp_s = pd.Series(imp).sort_values()
-        fig = px.bar(x=imp_s.values, y=imp_s.index, orientation="h",
-                     color=imp_s.values, color_continuous_scale=[GREEN, RED],
-                     labels={"x": "mean |SHAP|", "y": ""})
-        fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10),
-                          coloraxis_showscale=False, plot_bgcolor="white")
-        st.plotly_chart(fig, width="stretch")
+        if expl is None:
+            st.caption("SHAP explanations are unavailable in this environment.")
+        else:
+            pre = reg.named_steps["pre"]
+            sv = np.array(expl.shap_values(pre.transform(Xb)))
+            out = pre.get_feature_names_out()
+            imp = {}
+            for j, name in enumerate(out):
+                src = name.split("__", 1)[-1]
+                for feat in feats:
+                    if src == feat or src.startswith(feat + "_"):
+                        key = NICE.get(feat, feat)
+                        imp[key] = imp.get(key, 0.0) + np.abs(sv[:, j]).mean()
+                        break
+            imp_s = pd.Series(imp).sort_values()
+            fig = px.bar(x=imp_s.values, y=imp_s.index, orientation="h",
+                         color=imp_s.values, color_continuous_scale=[GREEN, RED],
+                         labels={"x": "mean |SHAP|", "y": ""})
+            fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10),
+                              coloraxis_showscale=False, plot_bgcolor="white")
+            st.plotly_chart(fig, width="stretch")
 
     with st.expander("Methodology & data-science pipeline"):
         st.markdown(
