@@ -1,9 +1,12 @@
 # Pinned for reproducible deploys (Streamlit Community Cloud reads this file).
-# scikit-learn must match the version the .pkl models were trained with.
+# scikit-learn must match the version the .pkl models were trained with (1.7.2).
+# numpy/scipy pinned to the first releases that ship Python-3.14 wheels, so the
+# cloud build never has to compile from source (that caused the spawn error).
 streamlit==1.57.0
 scikit-learn==1.7.2
 pandas==2.3.3
-numpy==2.2.6
+numpy==2.3.3
+scipy==1.16.2
 plotly==6.6.0
 pydeck==0.9.2
 joblib==1.5.2
