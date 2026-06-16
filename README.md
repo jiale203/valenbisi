@@ -15,7 +15,7 @@ both residents and the bike-share operator.
 | 🤖 **Model & Method** | Leaderboard, metrics, SHAP importance, methodology | Time-aware model selection |
 
 ## Live app
-👉 **[Deployed on Streamlit Community Cloud]](https://valenbisi-3erh2tubk7hurcmnbmamgj.streamlit.app/)[(#)**
+👉 **(https://valenbisi-3erh2tubk7hurcmnbmamgj.streamlit.app/)**
 
 ## Data
 - **Historical (training):** [`github.com/ceferra/valenbici`](https://github.com/ceferra/valenbici)
