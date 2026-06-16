@@ -9,7 +9,7 @@ both residents and the bike-share operator.
 | Tab | What it does | DS method |
 |-----|--------------|-----------|
 | 🚲 **Live Now** | Real-time map of every station (bikes / free docks), flags empty & full | Live API + geospatial viz |
-| 🔮 **Availability Forecast** | Predicts bikes & free docks for any station, day, hour & **weather scenario**, with stockout probability | Gradient-boosted **regression** + **SHAP** + a **classifier** |
+| 🔮 **Availability Forecast** | A **live next-30-min forecast** anchored on current availability, *plus* a typical-pattern explorer for any station/day/hour/weather | **XGBoost-GPU** + **PyTorch** short-term forecaster, gradient-boosted **regression**, **SHAP**, a **classifier** |
 | ♻️ **Rebalancing Planner** | Maps where bikes/docks will run out at a chosen time and suggests **moves** | Model-driven + greedy nearest-neighbour matching |
 | 🧭 **Station Clusters** | Groups stations by their 24-h behaviour (commuter source/sink, leisure…) | **KMeans** clustering |
 | 🤖 **Model & Method** | Leaderboard, metrics, SHAP importance, methodology | Time-aware model selection |
@@ -47,17 +47,38 @@ immediately.
 7. **Rebalancing:** greedy nearest-neighbour matching of predicted-full →
    predicted-empty stations.
 
+### ⚡ Short-term (next-30-min) forecaster — the GPU model
+A second, stronger forecaster predicts a station's bikes **30 minutes ahead**,
+*anchored on its current availability* (from the live API) plus its typical slot
+profile and weather. Two GPU-trained models (see `train_forecast.py` /
+`notebook/train_forecast_gpu.ipynb`):
+- **XGBoost** (`device="cuda"`) — served live in the app.
+- **PyTorch station-embedding MLP** — a deep-learning showcase (`nn.Embedding`
+  per station + MLP).
+
+Both are scored against **persistence** and **slot-mean** baselines on a
+time-ordered hold-out, trained on full **15-minute** snapshots
+(`download_forecast_data.py` builds a contiguous block so lag/`bikes_now`
+features are well defined). Feed it more consecutive days in Colab for an even
+stronger model.
+
 ## Project layout
 ```
 valenbisi/
 ├── app/
 │   ├── streamlit_app.py        # the 5-tab app
 │   └── data_prep.py            # shared parsing + feature engineering
-├── download_data.py            # fetch ceferra/valenbici + Open-Meteo → parquet
-├── train.py                    # model selection + classifier + clustering → artifacts
-├── notebook/train_model.ipynb  # Google Colab training notebook
-├── models/   forecast_model.pkl, stockout_model.pkl, model_meta.json
-├── data/     history.parquet, stations.parquet, station_profiles.parquet, hourly_profiles.parquet
+├── download_data.py            # seasonal sample (hourly) for the profile models
+├── download_forecast_data.py   # contiguous 15-min block for the short-term forecaster
+├── train.py                    # profile regressor + stockout classifier + clustering
+├── train_forecast.py           # XGBoost-GPU + PyTorch net (next-30-min forecaster)
+├── notebook/
+│   ├── train_model.ipynb           # Colab: profile models
+│   └── train_forecast_gpu.ipynb    # Colab (T4 GPU): short-term forecaster
+├── models/   forecast_model.pkl, stockout_model.pkl, model_meta.json,
+│             forecast30_xgb.pkl, forecast30_net.pt, forecast30_meta.json
+├── data/     stations.parquet, station_profiles.parquet, hourly_profiles.parquet,
+│             slot_profile.parquet
 ├── requirements.txt
 └── README.md
 ```
@@ -65,8 +86,10 @@ valenbisi/
 ## Run locally
 ```bash
 pip install -r requirements.txt
-python download_data.py      # build data/history.parquet (sample of open data)
-python train.py              # train models + write artifacts
+python download_data.py                               # seasonal hourly sample
+python train.py                                       # profile models + clustering
+python download_forecast_data.py --start 2025-03-01 --days 14   # 15-min block
+python train_forecast.py                              # next-30-min forecaster
 streamlit run app/streamlit_app.py
 ```
 

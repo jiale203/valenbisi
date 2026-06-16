@@ -21,7 +21,7 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import joblib
 import numpy as np
@@ -170,6 +170,34 @@ meta = load_meta()
 profiles = load_profiles()
 bands = load_bands()
 profiles = profiles.sort_values("name").reset_index(drop=True)
+
+
+# ---- optional short-term (next-30-min) forecaster ------------------------- #
+import forecast_prep as fp  # noqa: E402
+
+FC_XGB = os.path.join(ROOT, "models", "forecast30_xgb.pkl")
+FC_META = os.path.join(ROOT, "models", "forecast30_meta.json")
+SLOT_PATH = os.path.join(ROOT, "data", "slot_profile.parquet")
+FC_OK = all(os.path.exists(p) for p in (FC_XGB, FC_META, SLOT_PATH))
+
+
+@st.cache_resource(show_spinner=False)
+def load_fc():
+    bundle = joblib.load(FC_XGB)
+    with open(FC_META) as f:
+        fc_meta = json.load(f)
+    slot_idx = fp.slot_lookup(pd.read_parquet(SLOT_PATH))
+    return bundle["model"], fc_meta, slot_idx
+
+
+def nearest_live_bikes(stat: dict, live: pd.DataFrame):
+    """Match a station to the nearest live CityBikes station (<=150 m)."""
+    d = dp.haversine_km(stat["lat"], stat["lon"],
+                        live["lat"].to_numpy(), live["lon"].to_numpy())
+    j = int(np.argmin(d))
+    if d[j] > 0.15:
+        return None
+    return float(live.iloc[j]["free_bikes"])
 
 
 # --------------------------------------------------------------------------- #
@@ -334,10 +362,46 @@ def predict_all_stations(hour: int, dow: int, month: int, temp: float, precip: f
 # TAB 2 — Availability Forecast
 # =========================================================================== #
 with tab_fc:
-    st.subheader("Forecast availability for any station & scenario")
+    st.subheader("Forecast availability")
+    sname = st.selectbox("Station", profiles["name"].tolist())
+    stat = station_row(sname)
+
+    # ---- LIVE short-term forecast: anchored on current availability --------
+    if FC_OK:
+        fc_model, fc_meta, slot_idx = load_fc()
+        hz = fc_meta["horizon_min"]
+        st.markdown(f"#### 🔴 Live — next {hz} minutes")
+        live, ok, ts = fetch_live()
+        bn = nearest_live_bikes(stat, live) if ok else None
+        if bn is not None:
+            now = datetime.now()
+            tgt = now + timedelta(minutes=hz)
+            Xl = fp.make_live_row(stat, bn, now, tgt, MONTH_TEMP[now.month], 0.0, slot_idx)
+            yhat = float(np.clip(fc_model.predict(Xl)[0], 0, stat["capacity"]))
+            lm = st.columns(4)
+            lm[0].metric("Bikes now", f"{bn:.0f}")
+            lm[1].metric(f"In ~{hz} min", f"{yhat:.0f}", delta=f"{yhat - bn:+.0f}")
+            lm[2].metric("Free docks ~", f"{max(0.0, stat['capacity'] - yhat):.0f}")
+            lm[3].metric("Capacity", f"{stat['capacity']}")
+            if yhat < 1.5:
+                st.error("Likely **empty soon** — grab a bike now or pick another station.")
+            elif stat["capacity"] - yhat < 1.5:
+                st.warning("Likely **full soon** — may be hard to return a bike here.")
+            else:
+                st.success("Bikes **and** docks likely available over the next half hour.")
+            st.caption(f"Anchored on live availability (CityBikes · {ts}). "
+                       f"Forecaster: XGBoost, hold-out MAE {fc_meta['xgboost']['mae']} "
+                       f"bikes vs {fc_meta['baselines']['persistence']['mae']} persistence.")
+        elif ok:
+            st.info("No live Valenbisi station within 150 m of this one right now.")
+        else:
+            st.info("Live API unavailable — use the typical-pattern explorer below.")
+        st.divider()
+
+    # ---- Hypothetical 'typical pattern' explorer (profile model) -----------
+    st.markdown("##### Explore any day / hour / weather (typical pattern)")
     c = st.columns([1.15, 1])
     with c[0]:
-        sname = st.selectbox("Station", profiles["name"].tolist())
         cc = st.columns(2)
         day = cc[0].selectbox("Day", WEEKDAYS, index=2)
         hour = cc[1].slider("Hour", 0, 23, 8)
@@ -532,7 +596,31 @@ with tab_model:
     m[2].metric("Forecast R²", f"{meta['regressor_test']['r2']:.2f}")
     m[3].metric("Stockout ROC-AUC", f"{meta['stockout_test']['roc_auc']:.2f}")
 
-    st.markdown("##### Regressor model selection (time-ordered hold-out)")
+    if FC_OK:
+        _, fcm, _ = load_fc()
+        st.markdown(f"##### ⚡ Short-term forecaster — bikes {fcm['horizon_min']} min ahead")
+        st.caption("Anchors on the station's *current* availability (live API) + its "
+                   "typical slot profile + weather. Trained on 15-min snapshots; "
+                   "GPU-accelerated (XGBoost-CUDA + a PyTorch station-embedding net).")
+        rows = [{"model": "Persistence (baseline)", **fcm["baselines"]["persistence"]},
+                {"model": "Slot-mean (baseline)", **fcm["baselines"]["slot_mean"]},
+                {"model": "XGBoost (served)", **fcm["xgboost"]}]
+        if fcm.get("net"):
+            rows.append({"model": "PyTorch embedding net", **fcm["net"]})
+        fcdf = pd.DataFrame(rows)
+        fig = px.bar(fcdf, x="mae", y="model", orientation="h", text="mae",
+                     color="mae", color_continuous_scale=[GREEN, WARM, RED],
+                     labels={"mae": "MAE (bikes, lower=better)", "model": ""})
+        fig.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10),
+                          coloraxis_showscale=False, plot_bgcolor="white",
+                          yaxis={"categoryorder": "total descending"})
+        st.plotly_chart(fig, width="stretch")
+        st.caption(f"Window {fcm['data_window']} · {fcm['n_rows']:,} samples · "
+                   f"trained on {fcm['device']}. R²: XGBoost {fcm['xgboost']['r2']}"
+                   + (f", net {fcm['net']['r2']}" if fcm.get("net") else "") + ".")
+        st.divider()
+
+    st.markdown("##### Typical-profile regressor — model selection (hold-out by day)")
     lb = pd.DataFrame(meta["regressor_leaderboard"]).sort_values("mae_bikes")
     fig = px.bar(lb, x="mae_bikes", y="model", orientation="h", text="mae_bikes",
                  color="mae_bikes", color_continuous_scale=[GREEN, WARM, RED],

@@ -1,0 +1,48 @@
+{
+  "trained_on": "2026-06-16",
+  "task": "forecast bikes_available 30 min ahead",
+  "data_source": "ceferra/valenbici 15-min snapshots + Open-Meteo",
+  "data_window": "2025-02-28 00:15:00 \u2026 2025-03-14 00:00:00",
+  "n_rows": 365820,
+  "n_stations": 273,
+  "horizon_min": 30,
+  "features": [
+    "bikes_now",
+    "occ_now",
+    "slot_mean",
+    "slot_mean_now",
+    "delta_now_vs_slot",
+    "t_hour_sin",
+    "t_hour_cos",
+    "t_dayofweek",
+    "t_is_weekend",
+    "t_month",
+    "temperature",
+    "precipitation",
+    "is_rain",
+    "capacity",
+    "dist_center_km",
+    "lat",
+    "lon"
+  ],
+  "device": "cpu",
+  "baselines": {
+    "persistence": {
+      "mae": 1.0198,
+      "r2": 0.9246
+    },
+    "slot_mean": {
+      "mae": 2.8176,
+      "r2": 0.6922
+    }
+  },
+  "xgboost": {
+    "mae": 0.979,
+    "r2": 0.9431
+  },
+  "net": {
+    "mae": 1.0106,
+    "r2": 0.9409
+  },
+  "served_model": "forecast30_xgb.pkl"
+}
