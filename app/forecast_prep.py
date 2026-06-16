@@ -23,7 +23,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-HORIZON_MIN = 30          # forecast horizon in minutes
+HORIZON_MIN = 60          # forecast horizon in minutes
 STEP_MIN = 15             # snapshot cadence
 HORIZON_STEPS = HORIZON_MIN // STEP_MIN
 

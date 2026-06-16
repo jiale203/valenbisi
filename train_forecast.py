@@ -12,9 +12,9 @@ Run locally (CPU ok):  python train_forecast.py
 Run in Colab (T4 GPU):  notebook/train_forecast_gpu.ipynb (set runtime to GPU)
 
 Outputs:
-    models/forecast30_xgb.pkl      fitted XGBRegressor (app loads this)
-    models/forecast30_net.pt       PyTorch state_dict (+ _cfg.json)
-    models/forecast30_meta.json    metrics, baselines, horizon, features
+    models/forecast_xgb.pkl      fitted XGBRegressor (app loads this)
+    models/forecast_net.pt       PyTorch state_dict (+ _cfg.json)
+    models/forecast_meta.json    metrics, baselines, horizon, features
     (data/slot_profile.parquet is produced by download_forecast_data.py)
 """
 from __future__ import annotations
@@ -111,11 +111,11 @@ def train_net(tr, te, feats, device, epochs=25, emb_dim=16, batch=4096):
     m = metrics(y_te.numpy(), pred, cap=te["capacity"].values)
 
     # persist
-    torch.save(net.state_dict(), "models/forecast30_net.pt")
+    torch.save(net.state_dict(), "models/forecast_net.pt")
     cfg = {"features": feats, "emb_dim": emb_dim, "n_stations": n_sta,
            "station_index": {str(k): v for k, v in sta_index.items()},
            "scaler_mean": scaler.mean_.tolist(), "scaler_scale": scaler.scale_.tolist()}
-    with open("models/forecast30_net_cfg.json", "w") as f:
+    with open("models/forecast_net_cfg.json", "w") as f:
         json.dump(cfg, f)
     return m
 
@@ -170,8 +170,8 @@ def main():
     print(f">> XGBoost   MAE={xgb_m['mae']} bikes  R2={xgb_m['r2']}  "
           f"(best_iter={xreg.best_iteration})")
     joblib.dump({"model": xreg, "features": feats, "horizon_min": fp.HORIZON_MIN},
-                "models/forecast30_xgb.pkl")
-    print(">> Saved models/forecast30_xgb.pkl")
+                "models/forecast_xgb.pkl")
+    print(">> Saved models/forecast_xgb.pkl")
 
     # ---- PyTorch station-embedding net ------------------------------------
     net_m = None
@@ -188,11 +188,11 @@ def main():
         "n_rows": int(len(df)), "n_stations": int(df["station_id"].nunique()),
         "horizon_min": fp.HORIZON_MIN, "features": feats, "device": device,
         "baselines": base, "xgboost": xgb_m, "net": net_m,
-        "served_model": "forecast30_xgb.pkl",
+        "served_model": "forecast_xgb.pkl",
     }
-    with open("models/forecast30_meta.json", "w") as f:
+    with open("models/forecast_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
-    print(">> Saved models/forecast30_meta.json")
+    print(">> Saved models/forecast_meta.json")
 
     best = min([("persistence", base["persistence"]["mae"]),
                 ("XGBoost", xgb_m["mae"])] +

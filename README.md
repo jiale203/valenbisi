@@ -76,7 +76,7 @@ valenbisi/
 │   ├── train_model.ipynb           # Colab: profile models
 │   └── train_forecast_gpu.ipynb    # Colab (T4 GPU): short-term forecaster
 ├── models/   forecast_model.pkl, stockout_model.pkl, model_meta.json,
-│             forecast30_xgb.pkl, forecast30_net.pt, forecast30_meta.json
+│             forecast_xgb.pkl, forecast_net.pt, forecast_meta.json
 ├── data/     stations.parquet, station_profiles.parquet, hourly_profiles.parquet,
 │             slot_profile.parquet
 ├── requirements.txt

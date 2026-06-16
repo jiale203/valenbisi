@@ -17,3 +17,6 @@ venv/
 # OS / editors
 .DS_Store
 .vscode/
+
+# Windows "mark of the web" sidecar files
+*:Zone.Identifier

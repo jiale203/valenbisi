@@ -1,11 +1,11 @@
 {
   "trained_on": "2026-06-16",
-  "task": "forecast bikes_available 30 min ahead",
+  "task": "forecast bikes_available 60 min ahead",
   "data_source": "ceferra/valenbici 15-min snapshots + Open-Meteo",
   "data_window": "2025-02-28 00:15:00 \u2026 2025-03-14 00:00:00",
-  "n_rows": 365820,
+  "n_rows": 365274,
   "n_stations": 273,
-  "horizon_min": 30,
+  "horizon_min": 60,
   "features": [
     "bikes_now",
     "occ_now",
@@ -28,21 +28,21 @@
   "device": "cpu",
   "baselines": {
     "persistence": {
-      "mae": 1.0198,
-      "r2": 0.9246
+      "mae": 1.5803,
+      "r2": 0.8339
     },
     "slot_mean": {
-      "mae": 2.8176,
-      "r2": 0.6922
+      "mae": 3.6386,
+      "r2": 0.532
     }
   },
   "xgboost": {
-    "mae": 0.979,
-    "r2": 0.9431
+    "mae": 1.4101,
+    "r2": 0.8944
   },
   "net": {
-    "mae": 1.0106,
-    "r2": 0.9409
+    "mae": 1.4286,
+    "r2": 0.8902
   },
-  "served_model": "forecast30_xgb.pkl"
+  "served_model": "forecast_xgb.pkl"
 }

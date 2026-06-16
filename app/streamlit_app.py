@@ -175,8 +175,8 @@ profiles = profiles.sort_values("name").reset_index(drop=True)
 # ---- optional short-term (next-30-min) forecaster ------------------------- #
 import forecast_prep as fp  # noqa: E402
 
-FC_XGB = os.path.join(ROOT, "models", "forecast30_xgb.pkl")
-FC_META = os.path.join(ROOT, "models", "forecast30_meta.json")
+FC_XGB = os.path.join(ROOT, "models", "forecast_xgb.pkl")
+FC_META = os.path.join(ROOT, "models", "forecast_meta.json")
 SLOT_PATH = os.path.join(ROOT, "data", "slot_profile.parquet")
 FC_OK = all(os.path.exists(p) for p in (FC_XGB, FC_META, SLOT_PATH))
 
