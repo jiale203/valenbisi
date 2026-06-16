@@ -175,7 +175,7 @@ profiles = profiles.sort_values("name").reset_index(drop=True)
 # ---- optional short-term (next-30-min) forecaster ------------------------- #
 import forecast_prep as fp  # noqa: E402
 
-FC_XGB = os.path.join(ROOT, "models", "forecast_xgb.pkl")
+FC_MODEL = os.path.join(ROOT, "models", "forecast_short.pkl")
 FC_META = os.path.join(ROOT, "models", "forecast_meta.json")
 SLOT_PATH = os.path.join(ROOT, "data", "slot_profile.parquet")
 
@@ -184,13 +184,13 @@ SLOT_PATH = os.path.join(ROOT, "data", "slot_profile.parquet")
 def get_fc():
     """Load the short-term forecaster, or return None if unavailable.
 
-    Wrapped so a missing/incompatible xgboost or model file degrades the live
-    forecast gracefully instead of crashing the whole app.
+    Wrapped so a missing/incompatible model file degrades the live forecast
+    gracefully instead of crashing the whole app.
     """
-    if not all(os.path.exists(p) for p in (FC_XGB, FC_META, SLOT_PATH)):
+    if not all(os.path.exists(p) for p in (FC_MODEL, FC_META, SLOT_PATH)):
         return None
     try:
-        bundle = joblib.load(FC_XGB)
+        bundle = joblib.load(FC_MODEL)
         with open(FC_META) as f:
             fc_meta = json.load(f)
         slot_idx = fp.slot_lookup(pd.read_parquet(SLOT_PATH))
@@ -400,8 +400,8 @@ with tab_fc:
             else:
                 st.success("Bikes **and** docks likely available over the next half hour.")
             st.caption(f"Anchored on live availability (CityBikes · {ts}). "
-                       f"Forecaster: XGBoost, hold-out MAE {fc_meta['xgboost']['mae']} "
-                       f"bikes vs {fc_meta['baselines']['persistence']['mae']} persistence.")
+                       f"Forecaster hold-out MAE {fc_meta['served']['mae']} bikes vs "
+                       f"{fc_meta['baselines']['persistence']['mae']} persistence.")
         elif ok:
             st.info("No live Valenbisi station within 150 m of this one right now.")
         else:
@@ -611,24 +611,28 @@ with tab_model:
         fcm = _fcm["meta"]
         st.markdown(f"##### ⚡ Short-term forecaster — bikes {fcm['horizon_min']} min ahead")
         st.caption("Anchors on the station's *current* availability (live API) + its "
-                   "typical slot profile + weather. Trained on 15-min snapshots; "
-                   "GPU-accelerated (XGBoost-CUDA + a PyTorch station-embedding net).")
+                   "typical slot profile + weather. Served model: HistGradientBoosting; "
+                   "an XGBoost-CUDA model and a PyTorch station-embedding net are also "
+                   "trained on GPU as a showcase (see the Colab notebook).")
         rows = [{"model": "Persistence (baseline)", **fcm["baselines"]["persistence"]},
                 {"model": "Slot-mean (baseline)", **fcm["baselines"]["slot_mean"]},
-                {"model": "XGBoost (served)", **fcm["xgboost"]}]
+                {"model": "HistGradientBoosting (served)", **fcm["served"]}]
+        if fcm.get("xgboost"):
+            rows.append({"model": "XGBoost-CUDA (showcase)", **fcm["xgboost"]})
         if fcm.get("net"):
-            rows.append({"model": "PyTorch embedding net", **fcm["net"]})
+            rows.append({"model": "PyTorch net (showcase)", **fcm["net"]})
         fcdf = pd.DataFrame(rows)
         fig = px.bar(fcdf, x="mae", y="model", orientation="h", text="mae",
                      color="mae", color_continuous_scale=[GREEN, WARM, RED],
                      labels={"mae": "MAE (bikes, lower=better)", "model": ""})
-        fig.update_layout(height=230, margin=dict(l=10, r=10, t=10, b=10),
+        fig.update_layout(height=250, margin=dict(l=10, r=10, t=10, b=10),
                           coloraxis_showscale=False, plot_bgcolor="white",
                           yaxis={"categoryorder": "total descending"})
         st.plotly_chart(fig, width="stretch")
         st.caption(f"Window {fcm['data_window']} · {fcm['n_rows']:,} samples · "
-                   f"trained on {fcm['device']}. R²: XGBoost {fcm['xgboost']['r2']}"
-                   + (f", net {fcm['net']['r2']}" if fcm.get("net") else "") + ".")
+                   f"served R² {fcm['served']['r2']}"
+                   + (f" · XGBoost-CUDA R² {fcm['xgboost']['r2']}" if fcm.get("xgboost") else "")
+                   + ".")
         st.divider()
 
     st.markdown("##### Typical-profile regressor — model selection (hold-out by day)")

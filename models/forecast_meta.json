@@ -25,7 +25,11 @@
     "lat",
     "lon"
   ],
-  "device": "cpu",
+  "served_model": "HistGradientBoostingRegressor",
+  "served": {
+    "mae": 1.4185,
+    "r2": 0.8926
+  },
   "baselines": {
     "persistence": {
       "mae": 1.5803,
@@ -40,9 +44,9 @@
     "mae": 1.4101,
     "r2": 0.8944
   },
+  "xgboost_device": "cpu",
   "net": {
-    "mae": 1.4286,
-    "r2": 0.8902
-  },
-  "served_model": "forecast_xgb.pkl"
+    "mae": 1.436,
+    "r2": 0.8879
+  }
 }

@@ -12,8 +12,8 @@ Run locally (CPU ok):  python train_forecast.py
 Run in Colab (T4 GPU):  notebook/train_forecast_gpu.ipynb (set runtime to GPU)
 
 Outputs:
-    models/forecast_xgb.pkl      fitted XGBRegressor (app loads this)
-    models/forecast_net.pt       PyTorch state_dict (+ _cfg.json)
+    models/forecast_short.pkl    served model — sklearn HistGradientBoosting (app loads this)
+    models/forecast_net.pt       PyTorch state_dict (+ _cfg.json) — GPU showcase
     models/forecast_meta.json    metrics, baselines, horizon, features
     (data/slot_profile.parquet is produced by download_forecast_data.py)
 """
@@ -148,37 +148,51 @@ def main():
     print(f">> Baselines  persistence MAE={base['persistence']['mae']} "
           f"R2={base['persistence']['r2']} | slot MAE={base['slot_mean']['mae']}")
 
-    # ---- XGBoost (GPU when available) --------------------------------------
-    import xgboost as xgb
+    # ---- SERVED model: scikit-learn HistGradientBoosting -------------------
+    # Pure-sklearn so the deployed app needs no extra dependency (xgboost has no
+    # wheel on very new Python versions and would break the cloud build).
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    hgb = HistGradientBoostingRegressor(
+        max_iter=600, learning_rate=0.05, max_depth=None,
+        l2_regularization=1.0, random_state=42)
+    hgb.fit(tr[feats], tr[fp.TARGET])
+    served_m = metrics(yte, hgb.predict(te[feats]), cap)
+    print(f">> Served HistGradientBoosting  MAE={served_m['mae']} bikes  "
+          f"R2={served_m['r2']}")
+    joblib.dump({"model": hgb, "features": feats, "horizon_min": fp.HORIZON_MIN},
+                "models/forecast_short.pkl")
+    print(">> Saved models/forecast_short.pkl")
+
+    # ---- SHOWCASE: XGBoost on GPU (optional; not required to serve) ---------
+    device, xgb_m = "cpu", None
     try:
-        import torch
-        gpu = torch.cuda.is_available()
-    except Exception:                                # noqa: BLE001
-        gpu = False
-    device = "cuda" if gpu else "cpu"
-    print(f">> Device: {device}")
+        import xgboost as xgb
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:                            # noqa: BLE001
+            device = "cpu"
+        xreg = xgb.XGBRegressor(
+            n_estimators=1200, learning_rate=0.03, max_depth=8,
+            subsample=0.85, colsample_bytree=0.85, min_child_weight=5,
+            reg_lambda=1.0, tree_method="hist", device=device,
+            early_stopping_rounds=40, eval_metric="mae")
+        xreg.fit(tr[feats], tr[fp.TARGET],
+                 eval_set=[(te[feats], te[fp.TARGET])], verbose=False)
+        xgb_m = metrics(yte, xreg.predict(te[feats]), cap)
+        print(f">> [showcase] XGBoost ({device})  MAE={xgb_m['mae']}  R2={xgb_m['r2']}")
+    except Exception as e:                           # noqa: BLE001
+        print(f">> [showcase] XGBoost skipped ({type(e).__name__})")
 
-    xreg = xgb.XGBRegressor(
-        n_estimators=1200, learning_rate=0.03, max_depth=8,
-        subsample=0.85, colsample_bytree=0.85, min_child_weight=5,
-        reg_lambda=1.0, tree_method="hist", device=device,
-        early_stopping_rounds=40, eval_metric="mae")
-    xreg.fit(tr[feats], tr[fp.TARGET],
-             eval_set=[(te[feats], te[fp.TARGET])], verbose=False)
-    xgb_pred = xreg.predict(te[feats])
-    xgb_m = metrics(yte, xgb_pred, cap)
-    print(f">> XGBoost   MAE={xgb_m['mae']} bikes  R2={xgb_m['r2']}  "
-          f"(best_iter={xreg.best_iteration})")
-    joblib.dump({"model": xreg, "features": feats, "horizon_min": fp.HORIZON_MIN},
-                "models/forecast_xgb.pkl")
-    print(">> Saved models/forecast_xgb.pkl")
-
-    # ---- PyTorch station-embedding net ------------------------------------
+    # ---- SHOWCASE: PyTorch station-embedding net (optional) ----------------
     net_m = None
     if not args.no_net:
-        print(">> Training PyTorch station-embedding MLP")
-        net_m = train_net(tr, te, feats, device, epochs=args.epochs)
-        print(f">> Net       MAE={net_m['mae']} bikes  R2={net_m['r2']}")
+        try:
+            print(">> [showcase] Training PyTorch station-embedding MLP")
+            net_m = train_net(tr, te, feats, device, epochs=args.epochs)
+            print(f">> [showcase] Net  MAE={net_m['mae']}  R2={net_m['r2']}")
+        except Exception as e:                       # noqa: BLE001
+            print(f">> [showcase] Net skipped ({type(e).__name__})")
 
     meta = {
         "trained_on": str(date.today()),
@@ -186,19 +200,20 @@ def main():
         "data_source": "ceferra/valenbici 15-min snapshots + Open-Meteo",
         "data_window": f"{hist['dt'].min()} … {hist['dt'].max()}",
         "n_rows": int(len(df)), "n_stations": int(df["station_id"].nunique()),
-        "horizon_min": fp.HORIZON_MIN, "features": feats, "device": device,
-        "baselines": base, "xgboost": xgb_m, "net": net_m,
-        "served_model": "forecast_xgb.pkl",
+        "horizon_min": fp.HORIZON_MIN, "features": feats,
+        "served_model": "HistGradientBoostingRegressor", "served": served_m,
+        "baselines": base, "xgboost": xgb_m, "xgboost_device": device, "net": net_m,
     }
     with open("models/forecast_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
     print(">> Saved models/forecast_meta.json")
 
-    best = min([("persistence", base["persistence"]["mae"]),
-                ("XGBoost", xgb_m["mae"])] +
-               ([("Net", net_m["mae"])] if net_m else []), key=lambda t: t[1])
-    print(f"\nDone. Best MAE: {best[0]} = {best[1]} bikes "
-          f"(persistence baseline {base['persistence']['mae']}).")
+    cands = [("persistence", base["persistence"]["mae"]), ("served-HGB", served_m["mae"])]
+    cands += [("XGBoost", xgb_m["mae"])] if xgb_m else []
+    cands += [("Net", net_m["mae"])] if net_m else []
+    best = min(cands, key=lambda t: t[1])
+    print(f"\nDone. Served MAE {served_m['mae']} bikes vs persistence "
+          f"{base['persistence']['mae']}. Best overall: {best[0]} = {best[1]}.")
 
 
 if __name__ == "__main__":
