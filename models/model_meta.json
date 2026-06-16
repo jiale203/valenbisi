@@ -1,0 +1,71 @@
+{
+  "trained_on": "2026-06-16",
+  "data_source": "ceferra/valenbici (Valencia open data) + Open-Meteo",
+  "data_window": "2024-01-01 \u2026 2025-03-25",
+  "n_rows": 226870,
+  "n_stations": 277,
+  "n_days": 56,
+  "eval": "GroupShuffleSplit by day (20% held-out days)",
+  "features": {
+    "numeric": [
+      "hour",
+      "hour_sin",
+      "hour_cos",
+      "dayofweek",
+      "is_weekend",
+      "month",
+      "capacity",
+      "dist_center_km",
+      "lat",
+      "lon",
+      "temperature",
+      "precipitation",
+      "is_rain"
+    ],
+    "categorical": [
+      "station_id"
+    ]
+  },
+  "best_regressor": "HistGradientBoosting",
+  "regressor_leaderboard": [
+    {
+      "model": "Ridge (baseline)",
+      "mae_bikes": 4.683,
+      "r2": 0.2328
+    },
+    {
+      "model": "RandomForest",
+      "mae_bikes": 4.139,
+      "r2": 0.3785
+    },
+    {
+      "model": "HistGradientBoosting",
+      "mae_bikes": 4.112,
+      "r2": 0.397
+    }
+  ],
+  "regressor_test": {
+    "mae_bikes": 4.114,
+    "r2": 0.4011,
+    "mae_docks": 4.344,
+    "naive_mae_bikes": 5.454
+  },
+  "stockout_classifier": "HistGradientBoostingClassifier",
+  "stockout_test": {
+    "roc_auc": 0.833,
+    "pr_auc": 0.5241,
+    "brier": 0.0715,
+    "base_rate": 0.1087
+  },
+  "clustering": {
+    "algo": "KMeans",
+    "k": 4,
+    "silhouette": 0.27,
+    "names": {
+      "0": "Midday full (centre/leisure)",
+      "1": "Morning-emptying (residential) \u2014 pronounced",
+      "2": "Morning-emptying (residential) \u2014 mild",
+      "3": "Late-morning full"
+    }
+  }
+}
